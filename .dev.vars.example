@@ -1,0 +1,4 @@
+# For localhost development only. Never use these values for a public deployment.
+AUTH_MODE="password"
+USERNAME="demo"
+PASSWORD="local-demo-only-change-me"

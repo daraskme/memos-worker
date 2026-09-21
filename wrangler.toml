@@ -1,23 +1,32 @@
+# Safe, shareable defaults. For production, copy this file to
+# wrangler.production.toml (gitignored) and follow docs/SELF_HOSTING.md.
 name = "memos-worker"
-compatibility_date = "2025-08-19"
 main = "src/index.js"
+compatibility_date = "2025-08-19"
+workers_dev = false
+preview_urls = false
+# account_id = "YOUR_CLOUDFLARE_ACCOUNT_ID"
+# routes = [{ pattern = "notes.example.com", custom_domain = true }]
+
+[vars]
+AUTH_MODE = "cloudflare-access"
+CF_ACCESS_TEAM_DOMAIN = "https://your-team.cloudflareaccess.com"
+CF_ACCESS_AUD = ""
+CF_ACCESS_EMAIL = ""
+
 [assets]
 directory = "./src/public"
-run_worker_first = [
-	"/api/*"
-]
+run_worker_first = ["/api/*"]
 
 [[d1_databases]]
 binding = "DB"
-database_id = "YOUR_D1_DATABASE_ID"
-database_name = "YOUR_D1_DATABASE_NAME"
+database_name = "memos-db"
+database_id = "00000000-0000-0000-0000-000000000000"
 
 [[kv_namespaces]]
 binding = "NOTES_KV"
-id = "YOUR_KV_NAMESPACE_ID"
-preview_id = ""
+id = "00000000000000000000000000000000"
 
 [[r2_buckets]]
 binding = "NOTES_R2_BUCKET"
-bucket_name = "YOUR_R2_BUCKET_NAME"
-preview_bucket_name = "notes-files-preview"
+bucket_name = "memos-files"

@@ -1,3 +1,5 @@
+import { addCategoryFilter, readOrganization, saveOrganization, decorateNotes, handleCategories } from './organization.js';
+import { accessConfigured, verifyAccess } from './access.js';
 const NOTES_PER_PAGE = 10;
 const SESSION_DURATION_SECONDS = 30*86400; // Session 有效期: 30 天
 const SESSION_COOKIE = '__session';
@@ -12,6 +14,21 @@ export default {
  */
 async function handleApiRequest(request, env) {
 	const { pathname } = new URL(request.url);
+	const accessMode = env.AUTH_MODE === 'cloudflare-access';
+	let accessIdentity = null;
+	if (accessMode) {
+		if (!accessConfigured(env)) return jsonResponse({ error: 'Access authentication is not configured' }, 503);
+		accessIdentity = await verifyAccess(request, env);
+		if (!accessIdentity) return jsonResponse({ error: 'Google ログインで認証してください。', auth: 'cloudflare-access' }, 401);
+		if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
+			const origin = request.headers.get('Origin');
+			if (origin && origin !== new URL(request.url).origin) return jsonResponse({ error: 'Invalid origin' }, 403);
+		}
+		if (pathname === '/api/login') return jsonResponse({ error: 'Password login is disabled' }, 410);
+		if (pathname === '/api/logout') return jsonResponse({ success: true, logoutUrl: '/cdn-cgi/access/logout' });
+	} else if (env.AUTH_MODE !== 'password') {
+		return jsonResponse({ error: 'Authentication is not configured' }, 503);
+	}
 
 	// --- Memos 分享公开路由 ---
 	// 匹配分享页面 /share/some-uuid
@@ -64,9 +81,12 @@ async function handleApiRequest(request, env) {
 	}
 
 	// --- 从这里开始，所有 API 都需要认证 ---
-	const session = await isSessionAuthenticated(request, env);
+	const session = accessIdentity || await isSessionAuthenticated(request, env);
 	if (!session) {
 		return jsonResponse({ error: 'Unauthorized' }, 401);
+	}
+	if (request.method === 'GET' && pathname === '/api/session') {
+		return jsonResponse({ auth: accessMode ? 'cloudflare-access' : 'password', email: session.email || null, username: session.username });
 	}
 
 	if (request.method === 'POST' && pathname === '/api/notes/merge') {
@@ -154,6 +174,8 @@ async function handleApiRequest(request, env) {
 	if (pathname === '/api/tags') {
 		return handleTagsList(request, env);
 	}
+	const categoryMatch = pathname.match(/^\/api\/categories(?:\/(\d+))?$/);
+	if (categoryMatch) return handleCategories(request, env, categoryMatch[1]);
 	const fileMatch = pathname.match(/^\/api\/files\/([^\/]+)\/([^\/]+)$/);
 	if (fileMatch) {
 		const [, noteId, fileId] = fileMatch;
@@ -280,8 +302,8 @@ async function handleSearchRequest(request, env) {
 
 	// --- 引入分页逻辑 ---
 	const page = parseInt(searchParams.get('page') || '1');
-	const offset = (page - 1) * NOTES_PER_PAGE;
-	const limit = NOTES_PER_PAGE;
+	const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit')) || NOTES_PER_PAGE));
+	const offset = (page - 1) * limit;
 	const tagName = searchParams.get('tag');
 	const startTimestamp = searchParams.get('startTimestamp');
 	const endTimestamp = searchParams.get('endTimestamp');
@@ -295,6 +317,9 @@ async function handleSearchRequest(request, env) {
 		let whereClauses = ["notes_fts MATCH ?"];
 		let bindings = [`"${escapedQuery}"*`];
 		let joinClause = "";
+		whereClauses.push('n.is_archived = ?');
+		bindings.push(searchParams.get('archived') === 'true' ? 1 : 0);
+		addCategoryFilter(searchParams, whereClauses, bindings);
 		if (isFavoritesMode) {
 			whereClauses.push("n.is_favorited = 1");
 		}
@@ -336,10 +361,11 @@ async function handleSearchRequest(request, env) {
 				try { note.files = JSON.parse(note.files); } catch (e) { note.files = []; }
 			}
 		});
+		await decorateNotes(db, notes);
 		return jsonResponse({ notes, hasMore });
 	} catch (e) {
 		console.error("Search Error:", e.message);
-		return jsonResponse({ error: 'Database Error', message: e.message }, 500);
+		return jsonResponse({ error: 'Database Error', message: e.message }, e.status || 500);
 	}
 }
 
@@ -351,15 +377,18 @@ async function handleTagsList(request, env) {
 	try {
 		// 使用 LEFT JOIN 和 COUNT 来统计每个标签关联的笔记数量
 		// ORDER BY count DESC, name ASC 实现了按数量降序、名称升序的排序
+		const archived = new URL(request.url).searchParams.get('archived');
 		const stmt = db.prepare(`
             SELECT t.name, COUNT(nt.note_id) as count
             FROM tags t
             LEFT JOIN note_tags nt ON t.id = nt.tag_id
+            JOIN notes n ON n.id = nt.note_id
+            ${archived === null ? '' : 'WHERE n.is_archived = ?'}
             GROUP BY t.id, t.name
             HAVING count > 0 -- 只返回被使用过的标签
             ORDER BY count DESC, t.name ASC
         `);
-		const { results } = await stmt.all();
+		const { results } = await (archived === null ? stmt : stmt.bind(archived === 'true' ? 1 : 0)).all();
 		return jsonResponse(results);
 	} catch (e) {
 		console.error("Tags List Error:", e.message);
@@ -388,6 +417,9 @@ async function isSessionAuthenticated(request, env) {
  * 处理登录请求
  */
 async function handleLogin(request, env) {
+	if (!env.USERNAME || !env.PASSWORD) {
+		return jsonResponse({ error: 'Authentication is not configured' }, 503);
+	}
 	try {
 		const { username, password } = await request.json();
 		if (username === env.USERNAME && password === env.PASSWORD) {
@@ -397,7 +429,7 @@ async function handleLogin(request, env) {
 				expirationTtl: SESSION_DURATION_SECONDS,
 			});
 			const headers = new Headers();
-			headers.append('Set-Cookie', `${SESSION_COOKIE}=${sessionId}; HttpOnly; Secure; SameSite=Strict; Max-Age=${SESSION_DURATION_SECONDS}`);
+			headers.append('Set-Cookie', `${SESSION_COOKIE}=${sessionId}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${SESSION_DURATION_SECONDS}`);
 			return jsonResponse({ success: true }, 200, headers);
 		}
 	} catch (e) {
@@ -418,7 +450,7 @@ async function handleLogout(request, env) {
 		}
 	}
 	const headers = new Headers();
-	headers.append('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
+	headers.append('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
 	return jsonResponse({ success: true }, 200, headers);
 }
 
@@ -488,8 +520,8 @@ async function handleNotesList(request, env) {
 			case 'GET': {
 				const url = new URL(request.url);
 				const page = parseInt(url.searchParams.get('page') || '1');
-				const offset = (page - 1) * NOTES_PER_PAGE;
-				const limit = NOTES_PER_PAGE;
+				const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit')) || NOTES_PER_PAGE));
+				const offset = (page - 1) * limit;
 
 				const startTimestamp = url.searchParams.get('startTimestamp');
 				const endTimestamp = url.searchParams.get('endTimestamp');
@@ -500,6 +532,7 @@ async function handleNotesList(request, env) {
 				let whereClauses = [];
 				let bindings = [];
 				let joinClause = "";
+				addCategoryFilter(url.searchParams, whereClauses, bindings);
 
 				if (isArchivedMode) {
 					whereClauses.push("n.is_archived = 1");
@@ -554,11 +587,13 @@ async function handleNotesList(request, env) {
 					}
 				});
 
+				await decorateNotes(db, notes);
 				return jsonResponse({ notes, hasMore });
 			}
 
 			case 'POST': {
 				const formData = await request.formData();
+				const organization = await readOrganization(formData, db);
 				const content = formData.get('content')?.toString() || '';
 				const files = formData.getAll('file');
 
@@ -599,6 +634,7 @@ async function handleNotesList(request, env) {
 					await updateFilesStmt.bind(JSON.stringify(filesMeta), noteId).run();
 				}
 
+				await saveOrganization(db, noteId, organization);
 				await processNoteTags(db, noteId, content);
 				// 获取完整的笔记返回给前端
 				const newNote = await db.prepare("SELECT * FROM notes WHERE id = ?").bind(noteId).first();
@@ -606,12 +642,13 @@ async function handleNotesList(request, env) {
 					newNote.files = JSON.parse(newNote.files);
 				}
 
+				await decorateNotes(db, [newNote]);
 				return jsonResponse(newNote, 201);
 			}
 		}
 	} catch (e) {
 		console.error("D1 Error:", e.message, e.cause);
-		return jsonResponse({ error: 'Database Error', message: e.message }, 500);
+		return jsonResponse({ error: 'Database Error', message: e.message }, e.status || 500);
 	}
 }
 
@@ -643,6 +680,7 @@ async function handleNoteDetail(request, noteId, env) {
 		switch (request.method) {
 			case 'PUT': {
 				const formData = await request.formData();
+				const organization = await readOrganization(formData, db);
 				const shouldUpdateTimestamp = formData.get('update_timestamp') !== 'false';
 
 				if (formData.has('content')) {
@@ -691,7 +729,6 @@ async function handleNoteDetail(request, noteId, env) {
 						"UPDATE notes SET content = ?, files = ?, updated_at = ?, pics = ? WHERE id = ?"
 					);
 					await stmt.bind(content, JSON.stringify(currentFiles), newTimestamp, picUrls, id).run();
-					await processNoteTags(db, id, content);
 				}
 
 				if (formData.has('isPinned')) { // --- 这是置顶状态的更新 ---
@@ -711,9 +748,12 @@ async function handleNoteDetail(request, noteId, env) {
 				}
 
 				const updatedNote = await db.prepare("SELECT * FROM notes WHERE id = ?").bind(id).first();
+				await saveOrganization(db, id, organization);
+				if (formData.has('content') || organization) await processNoteTags(db, id, updatedNote.content);
 				if (typeof updatedNote.files === 'string') {
 					updatedNote.files = JSON.parse(updatedNote.files);
 				}
+				await decorateNotes(db, [updatedNote]);
 				return jsonResponse(updatedNote);
 			}
 
@@ -758,7 +798,7 @@ async function handleNoteDetail(request, noteId, env) {
 		}
 	} catch (e) {
 		console.error("D1 Error:", e.message, e.cause);
-		return jsonResponse({ error: 'Database Error', message: e.message }, 500);
+		return jsonResponse({ error: 'Database Error', message: e.message }, e.status || 500);
 	}
 }
 
@@ -1211,6 +1251,7 @@ function extractImageUrls(content) {
  * 处理笔记的标签逻辑，过滤掉 URL 中的 #
  */
 async function processNoteTags(db, noteId, content) {
+	const organization = await db.prepare('SELECT manual_tags FROM note_organization WHERE note_id = ?').bind(noteId).first();
 	const plainTextContent = content.replace(/<[^>]*>/g, '');
 	// 1. 定义两个正则表达式：一个用于标签，一个用于 URL
 	const tagRegex = /#([\p{L}\p{N}_-]+)/gu;
@@ -1218,7 +1259,7 @@ async function processNoteTags(db, noteId, content) {
 
 	// 2. 将内容分割成“普通文本”和“链接文本”的交替数组
 	const segments = plainTextContent.split(urlRegex);
-	let allTags = [];
+	let allTags = JSON.parse(organization?.manual_tags || '[]');
 
 	// 3. 遍历所有片段
 	segments.forEach(segment => {

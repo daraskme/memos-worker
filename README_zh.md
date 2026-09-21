@@ -1,4 +1,6 @@
-[English](./README.md)
+本 Fork 的新界面、Google Access 登录与部署步骤请参阅 [README](./README.md) 和 [部署文档](./docs/SELF_HOSTING.md)。下文保留上游版本的说明。
+
+[README](./README.md)
 
 # Memos Worker: 由 Cloudflare 驱动的笔记与知识库
 

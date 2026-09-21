@@ -2,13 +2,22 @@
 	"name": "memos-worker",
 	"version": "1.0.0",
 	"private": true,
+	"type": "module",
 	"scripts": {
-		"deploy": "npx wrangler deploy",
-		"dev remote": "npx wrangler dev --x-remote-bindings",
-		"dev local": "npx wrangler dev",
-		"start": "npx wrangler dev"
+		"deploy": "wrangler deploy --config wrangler.production.toml",
+		"dev": "wrangler dev --local --ip 127.0.0.1",
+		"start": "npm run dev",
+		"db:local": "wrangler d1 execute memos-db --local --file src/schema.sql",
+		"demo": "node scripts/seed-demo.mjs",
+		"test": "node tests/access.mjs",
+		"check": "node --check src/index.js && node --check src/organization.js && node --check src/public/notes-ui.js && wrangler versions upload --dry-run"
 	},
 	"devDependencies": {
 		"wrangler": "^4.33.0"
+	},
+	"dependencies": {
+		"dompurify": "^3.4.15",
+		"jose": "^6.2.12",
+		"marked": "^18.0.13"
 	}
 }

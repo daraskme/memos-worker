@@ -166,6 +166,17 @@ dist
 .env*
 !.env.example
 .wrangler/
+# Per-installation settings, local data and backups must stay private.
+wrangler.production.toml
+.local/
+backups/
+*.sqlite
+*.sqlite3
+*.db
+*.sql.gz
+*.dump
+*secrets*.json
+*login*.txt
 /.idea/.gitignore
 /.idea/dictionaries/15530.xml
 /.idea/codeStyles/codeStyleConfig.xml

@@ -1,172 +1,92 @@
-[中文](./README_zh.md)
+<p align="center"><img src="src/public/memos-icon.png" width="80" alt="Memos icon"></p>
 
-# Memos Worker: A Cloudflare-Powered Notes and Knowledge Base
+# Memos Worker — Keep-style notes
 
-![1](./image/1.png)
-![1](./image/2.png)
-![1](./image/3.png)
-![1](./image/4.png)
+Google Keep のようにメモをカードで並べる、Cloudflare 上でセルフホストできるメモアプリです。
+[souvenp/memos-worker](https://github.com/souvenp/memos-worker) をベースに、カテゴリ・タグ・自動保存・Google 認証を追加しています。
 
-**Memos Worker** is a powerful and high-performance serverless application for notes and knowledge management. Built entirely on the Cloudflare ecosystem (Workers, Pages, D1, R2, KV), it provides a private, cost-effective notes solution that you can own forever.
+**[セルフホスト手順](docs/SELF_HOSTING.md)** · **[Local development](#ローカルで試す)** · **[上流の説明](docs/UPSTREAM.md)**
 
-## ✨ Features
+## スクリーンショット
 
--   **✍️ Full-featured Markdown Support**: Supports real-time preview, split-screen editing, and smart pasting from rich text to Markdown.
--   **🎛️ Flexible Views & Workflow**: Manage notes via archiving, favoriting, and pinning. Customize your display with list, waterfall, and date-grouped views.
--   **🗂️ Files & Attachments**: Supports drag-and-drop or pasting to upload images (to R2 or Imgur) and various file types.
--   **🔗 Public Sharing**: Generate unique, publicly accessible links for any individual memo or file within your notes, with optional expiration times.
--   **🤖 Telegram Integration**: Record text, images, videos, and files on the go via a Telegram Bot, with a proxy option to save storage space.
--   **📚 Powerful Organization**: Automatic tagging, full-text search, timeline, calendar, and a contribution heatmap.
--   **📃 Knowledge Base (Docs)**: A separate, tree-structured documentation center, perfect for building organized knowledge systems.
--   **🎨 Highly Customizable**: Light/dark themes, custom primary colors, background images, glassmorphism effects, and fine-grained layout and feature visibility adjustments.
--   **🚀 High Performance & Low Cost**: Blazing fast responses powered by the Cloudflare global network, running at virtually zero cost on the free tier.
+以下はローカル環境の架空のサンプルメモです。個人のメモ、添付ファイル、アカウント情報は含めていません。
 
-## 🚀 Deployment Guide
+### カード表示
 
-### Step 1: Choose Your Repository Creation Method
+![サンプルメモのカード表示](docs/screenshots/cards.png)
 
-You have two ways to create your own code repository. Please choose one based on your needs.
+### カテゴリ別の列表示
 
-#### Option A: Fork (Recommended, for easy updates)
--   **Pros**: Your repository remains linked to the original. When new features or bug fixes are released, you can easily sync these updates from GitHub.
--   **Cons**: Your code repository **must be public**.
--   **Action**: Click the **"Fork"** button at the top-right of this page.
+![サンプルメモをカテゴリ別の列に表示](docs/screenshots/board.png)
 
-#### Option B: Use this template (For a private repository)
--   **Pros**: You can create a new, completely independent, and **private** code repository.
--   **Cons**: Your repository will be detached from the original project, making it **difficult to get future updates automatically**. You will need to manually sync changes using Git commands, which can be complex.
--   **Action**: Click **"Use this template"** -> **"Create a new repository"** at the top-right of this page.
+## 主な機能
 
-### Step 2: Create Cloudflare Resources
+- カード・カテゴリ別の列・リスト表示。カテゴリ列へのドラッグで分類を変更。
+- **カテゴリとタグを別管理**。カテゴリはメモごとに1つ、タグは複数。サイドバーの一覧と複合絞り込み。
+- 本文の `#タグ` と、本文とは独立したタグ入力欄。
+- **約2秒の入力停止で自動保存**。編集画面の外側クリック・閉じる・Esc でも保存。
+- 保存に失敗した場合は入力を保持。保存中に編集した内容も続けて保存。
+- Markdown、検索、お気に入り、上部固定、アーカイブ、画像・ファイル添付。
+- Cloudflare Access + Google ログイン。Worker でも JWT の署名・発行元・対象アプリ・期限・許可メールを検証。
+- ライト・ダークテーマ。メイン画面にはカレンダーや統計カードを表示しません。
+- 上流の詳細画面は `/classic`、ドキュメント機能は `/docs` に保持。
 
-You need to manually create the necessary D1, R2, and KV resources in your Cloudflare Dashboard.
+## 構成
 
-| Resource Type | Recommended Name | Binding Variable Name |
-| ----------------- | ----------------- | --------------------- |
-| **D1 Database** | `notes-db` | `DB` |
-| **KV Namespace** | `notes-kv` | `NOTES_KV` |
-| **R2 Bucket** | `notes-r2-bucket` | `NOTES_R2_BUCKET` |
+| サービス | 用途 |
+| --- | --- |
+| Cloudflare Workers + Static Assets | API と画面 |
+| D1 | メモ、カテゴリ、タグ、ドキュメント |
+| R2 | 画像、添付ファイル |
+| KV | 設定など |
+| Cloudflare Access + Google | 本番の認証 |
 
-1.  **Create D1 Database (`notes-db`)**:
-	-   Go to **Workers & Pages** -> **D1** -> **Create database**.
-	-   **Important**: After creation, go to the database's console, copy and execute the entire content of the `schema.sql` file.
-	-   **Important**: Note down the `database_id` and `database_name`. Open your local `wrangler.toml` file and fill them into the `[[d1_databases]]` section.
+単一オーナー向けの構成です。公開リポジトリにメモ本体や DB のバックアップは含まれません。ソースを取得しても、他の利用者のデータには接続しません。
 
-2.  **Create KV Namespace (`notes-kv`)**:
-	-   Go to **Workers & Pages** -> **KV** -> **Create a namespace**.
-	-   **Important**: Note down the `id`. Fill it into the `[[kv_namespaces]]` section of your `wrangler.toml` file.
+## ローカルで試す
 
-3.  **Create R2 Bucket (`notes-r2-bucket`)**:
-	-   Go to **R2** -> **Create bucket**.
-	-   **Important**: Note down the `bucket_name`. Fill it into the `[[r2_buckets]]` section of your `wrangler.toml` file.
+Node.js 22 以降を使用してください。
 
-4.  **Commit and Push**: Save the changes to your `wrangler.toml` file and push them to your GitHub repository.
-
-### Step 3: Deploy to Cloudflare Workers
-
-1.  In your Cloudflare Dashboard, go to **Workers & Pages** -> **Create application** -> **Select the "Workers" tab**.
-2.  Click **"Connect with Git"** and choose your forked repository.
-3.  Click **Save and Deploy**.
-
-### Step 4: Configure Environment Variables
-
-After deployment, go to your new Worker's settings to add secrets.
-
-1.  Navigate to your Worker's project -> **Settings** -> **Variables**.
-2.  Under **Environment Variables**, add the following variables. Remember to click `Encrypt` for sensitive values.
-
-	| Variable Name           | Description                                  |
-    | ----------------------- | -------------------------------------------- |
-	| `USERNAME`              | Your login username                          |
-	| `PASSWORD`              | Your login password                          |
-	| `TELEGRAM_BOT_TOKEN`    | (Optional) Your Telegram bot's token         |
-	| `TELEGRAM_WEBHOOK_SECRET` | (Optional) A long, random string for webhook security |
-	| `AUTHORIZED_TELEGRAM_IDS` | (Optional) Your Telegram user ID to authorize |
-
-3.  Trigger a new deployment from the "Deployments" tab to make the variables effective.
-
-### Step 5: (Optional) Activate Telegram Webhook
-
-If you configured the Telegram variables, you need to activate the webhook once.
-
-1.  Get your Worker's URL (e.g., `https://your-project.pages.dev`).
-2.  Construct the following webhook activation URL in your browser's address bar:
-	```
-	https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook?url=https://your-project.pages.dev/api/telegram_webhook/<TELEGRAM_WEBHOOK_SECRET>&secret_token=<TELEGRAM_WEBHOOK_SECRET>
-	```
-3.  **Replace** `<TELEGRAM_BOT_TOKEN>` and `<TELEGRAM_WEBHOOK_SECRET>` with your actual secret values.
-4.  Press Enter. If you see `{"ok":true,"result":true,"description":"Webhook was set"}`, it's successful! You can now send messages to your bot.
-
----
-
-> Alternatively, you can deploy directly from the command line using Wrangler. (This guide is based on `wrangler@^4.33.0`).
->
-> 1.  Clone the repository locally and fill in the `wrangler.toml` file with your configurations for KV, D1, and R2.
-> 2.  Run the command: `npx wrangler deploy`
-
-## 💡 Tips
-
--   **Preview Raw Files**: In the main interface or on a public share page, you can **right-click** on any text-based file attachment (like `.txt`, `.md`, `.json`, `.js`) to open its raw content directly in a new tab.
--   **Understanding "Telegram Proxy"**: This setting (found in the Settings panel) controls how videos and files from Telegram are handled.
-	-   **Proxy ON**: Saves R2 storage space. Your Worker creates a link that *proxies* to Telegram's file. **Risk**: If the original file is deleted from Telegram, your link will break.
-	-   **Proxy OFF**: Uses R2 storage. Your Worker downloads the file from Telegram and re-uploads it to your R2 bucket, ensuring you have a permanent copy.
--   **Understanding "Keep Time"**: When editing a note, you'll see a "Keep Time" checkbox.
-	-   **Checked (Default)**: When you save the edit, the note's original timestamp will be preserved. It will **not** jump to the top of your timeline.
-	-   **Unchecked**: When you save, the note's timestamp will be updated to the current time, making it the most recent note.
-
-## 🔍 Rebuilding Search Index (Recommended)
-
-If you are updating from an older version(<20260206) and want to enable searching by **filenames**, you need to rebuild your Full-Text Search (FTS) index.
-
-1.  Go to your Cloudflare Dashboard -> **Workers & Pages** -> **D1**.
-2.  Select your database (e.g., `notes-db`).
-3.  Click on the **Console** tab.
-4.  Copy the entire content of `src/migrate_fts.sql` from this repository and paste it into the console.
-5.  Click **Execute**.
-
-This will update your search index to include filenames and refresh all existing data.
-
-## 🔧 Development (Wrangler)
-
-### 1. Local Development (Simulated Environment)
-
-**Initialize local database**:
-```bash
-npx wrangler d1 execute YOUR_D1_NAME --local --file=./src/schema.sql
+```sh
+git clone https://github.com/daraskme/memos-worker.git
+cd memos-worker
+npm ci
+cp .dev.vars.example .dev.vars
+npm run db:local
+npm run dev
 ```
 
-**Start the dev server**:
-```bash
-npx wrangler dev
+PowerShell では `cp` の代わりに `Copy-Item .dev.vars.example .dev.vars`、必要なら `npm.cmd` を使います。
+
+http://127.0.0.1:8787 を開き、`.dev.vars` のローカル専用アカウントでログインします。デフォルトは `demo` / `local-demo-only-change-me` です。本番にはこの認証方式・認証情報を使わず、[Google 認証を設定](docs/SELF_HOSTING.md)してください。
+
+空のローカル DB に架空のサンプルを追加する場合は、サーバー起動中に別のターミナルで実行します。
+
+```sh
+npm run demo
 ```
 
-### 2. Local Development (Connected to Cloud Resources)
+サンプル投入スクリプトはループバック URL にのみ接続し、既存のメモまたはカテゴリがある場合は停止します。`npm run db:local` は新規 DB の初期化用で、既存 DB には繰り返し実行しません。
 
-This mode connects your local dev server to your actual Cloudflare resources.
+## 本番へのデプロイ
 
-1.  **Configure `wrangler.toml`**: Ensure the resource IDs from your Cloudflare Dashboard are filled in this file.
-	```toml
-	# wrangler.toml
-	[[d1_databases]]
-	binding = "DB"
-	database_name = "notes-db"
-	database_id = "YOUR_D1_DATABASE_ID" # Replace
+[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md) に、Cloudflare リソース作成、Google IdP、Access ポリシー、DB 初期化、公開・更新の手順をまとめています。
 
-	[[kv_namespaces]]
-	binding = "NOTES_KV"
-	id = "YOUR_KV_NAMESPACE_ID" # Replace
+共有用の `wrangler.toml` にはダミー ID のみを置き、実際の設定は Git 管理しない `wrangler.production.toml` に保存します。`.dev.vars`、ローカル DB、バックアップも Git 管理から除外しています。
 
-	[[r2_buckets]]
-	binding = "NOTES_R2_BUCKET"
-	bucket_name = "notes-r2-bucket"
-	```
-2.  **Create `.dev.vars` file**: Create this file in the project root for your local secrets.
-	```ini
-	# .dev.vars (This file is ignored by Git)
-	USERNAME="dev_user"
-	PASSWORD="dev_password"
-	```
-3.  **Start the remote-connected dev server**:
-	```bash
-	npx wrangler dev --remote
-	```
+## 検証
+
+```sh
+npm test
+npm run check
+```
+
+認証の正常系・署名やメール等の不正値・古い Cookie による迂回拒否を検証し、Worker のビルドを確認します。GitHub Actions でも実行します。
+
+## クレジット
+
+ベース: [souvenp/memos-worker](https://github.com/souvenp/memos-worker)。上流のコミット履歴を保持した Fork です。
+
+画面で配布する Marked / DOMPurify のライセンス文書は [docs/licenses](docs/licenses) にあります。アイコンは組み込み画像生成ツールで作成しました。[生成プロンプト](docs/icon-generation.md)
+
+上流の取得時点ではリポジトリ全体の LICENSE ファイルはありませんでした。この Fork で上流コードに新たなライセンスを付与していません。
