@@ -1,4 +1,4 @@
-本 Fork 的新界面、Google Access 登录与部署步骤请参阅 [README](./README.md) 和 [部署文档](./docs/SELF_HOSTING.md)。下文保留上游版本的说明。
+本 Fork 的新界面、Cloudflare Access 登录（身份提供商可自行选择）与部署步骤请参阅 [README](./README.md) 和 [部署文档](./docs/SELF_HOSTING.md)。下文保留上游版本的说明。
 
 [README](./README.md)
 

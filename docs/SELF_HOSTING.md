@@ -1,12 +1,12 @@
 # Cloudflare でセルフホストする
 
-本番は **Cloudflare Access + Google** で保護する構成です。個人用メモアプリとして、1つの許可メールアドレスを設定します。
+本番は **Cloudflare Access** で保護する構成です。**利用する認証方法は各自で設定してください。** Google、GitHub、メールのワンタイム PIN、OIDC/SAML など、Access が対応するプロバイダーを選べます。個人用メモアプリとして、1つの許可メールアドレスを設定します。
 
 ## 1. 用意するもの
 
 - Cloudflare アカウントと、そのアカウントで管理するドメイン
 - Node.js 22 以降、npm
-- Google アカウント、および Google IdP 用 OAuth クライアント
+- 利用したい認証プロバイダーのアカウントと、その方式に必要な設定（メールのワンタイム PIN も選択可能）
 - R2 が有効な Cloudflare アカウント
 
 費用や利用上限は使用量・契約内容によって変わります。Workers / D1 / KV / R2 / Access の各プランを確認してください。
@@ -45,21 +45,21 @@ npx wrangler r2 bucket create memos-files
 バインディング名 `DB`、`NOTES_KV`、`NOTES_R2_BUCKET` は変更しません。
 `workers_dev = false`、`preview_urls = false` はそのままにします。
 
-## 3. Google IdP と Access アプリを作る
+## 3. 任意の認証方法と Access アプリを設定する
 
-1. Cloudflare One の **Integrations → Identity providers** で Google を登録します。登録済みなら再利用できます。
-2. Google Cloud の OAuth クライアントには、Cloudflare が指定するチームドメインのコールバック URL を設定します。例: `https://your-team.cloudflareaccess.com/cdn-cgi/access/callback`。
+1. Cloudflare One の **Integrations → Identity providers** で、利用したい認証プロバイダーを登録します。登録済みのものも再利用できます。外部 IdP を使わない場合はメールのワンタイム PIN を設定します。
+2. 選んだ方式の公式手順に従い、必要なクライアント ID・シークレット・コールバック URL などを設定します。OAuth/OIDC の例: `https://your-team.cloudflareaccess.com/cdn-cgi/access/callback`。すべての方式に OAuth 設定が必要なわけではありません。
 3. **Access controls → Applications** で Self-hosted アプリを追加し、使いたいホスト名全体を指定します。パスは空欄にします。
-4. Allow ポリシーを作り、Include に自分の **メールアドレスの完全一致**、Require に **Login Method: Google** を設定します。
-5. 利用可能な IdP は **Google のみ**に設定します。全 IdP 許可は無効にし、必要に応じて Instant Auth を有効にします。
+4. Allow ポリシーを作り、Include に自分の **メールアドレスの完全一致**を設定します。ログイン方法も制限する場合は Require の **Login Method** に選んだプロバイダーを指定します。
+5. アプリで利用可能な IdP に、自分が使う認証方法を選択します。1つだけ利用する場合は、必要に応じて Instant Auth を有効にできます。
 6. セッション期間を設定します（この構成では24時間が目安）。HTTP-only Cookie も有効にします。
 7. アプリの Additional settings にある **Application Audience (AUD)** を控えます。
 
 本番へコードを配信する前に Access のホスト名とポリシーを設定してください。
 
-Google の Client Secret は Cloudflare の IdP 設定に入力し、このリポジトリや Worker のコードには保存しません。
+クライアントシークレットなどは Cloudflare の IdP 設定に入力し、このリポジトリや Worker のコードには保存しません。アプリはプロバイダー固有の API を使わず、Cloudflare Access が発行する JWT を検証します。選んだ方式で JWT にユーザーの `email` が含まれることを確認してください。
 
-公式手順: [Google IdP](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/google/) / [Self-hosted Access app](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/)。
+公式手順: [認証プロバイダー一覧と設定](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/) / [Self-hosted Access app](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/)。
 
 ## 4. Worker の認証設定を合わせる
 
@@ -72,7 +72,7 @@ CF_ACCESS_AUD = "YOUR_APPLICATION_AUDIENCE"
 CF_ACCESS_EMAIL = "you@example.com"
 ```
 
-チームドメインは `https://` 付き・末尾スラッシュなしです。メールは Access ポリシーで許可した値と一致させます。Google が返すアカウントのメールを指定してください。
+チームドメインは `https://` 付き・末尾スラッシュなしです。メールは Access ポリシーで許可した値と一致させます。選んだ認証方法で Access に渡されるアカウントのメールを指定してください。
 
 設定がない場合や不正な JWT は拒否します。メールヘッダーだけを信頼せず、Access の公開鍵で署名を検証します。
 [Cloudflare の JWT 検証ドキュメント](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)。
@@ -90,7 +90,7 @@ npm run deploy
 
 DB 名を変えた場合はコマンドの `memos-db` も変更します。既存のメモがある DB に初期化 SQL を実行しないでください。
 
-設定した HTTPS URL にアクセスし、許可した Google アカウントでログインします。別のブラウザーやプライベートウィンドウで、未ログイン時に画面と `/api/notes` が Access に転送されることも確認します。
+設定した HTTPS URL にアクセスし、選んだ認証方法でログインします。別のブラウザーやプライベートウィンドウで、未ログイン時に画面と `/api/notes` が Access に転送されることも確認します。
 
 ## 6. 既存の上流版から更新する場合
 
@@ -134,6 +134,6 @@ npx wrangler versions deploy VERSION_ID@100% --config wrangler.production.toml -
 
 リソース作成・初期化・配信には、対象アカウントの Workers、D1、KV、R2 と対象ゾーンの Workers Routes など、実行する操作に対応する権限が必要です。権限が不足する操作は Cloudflare 管理画面から行うこともできます。
 
-トークン、Google Client Secret、ログイン用秘密情報、DB エクスポートはコミットしないでください。
+トークン、IdP のクライアントシークレット、ログイン用秘密情報、DB エクスポートはコミットしないでください。
 
 D1 コマンド: [公式ドキュメント](https://developers.cloudflare.com/d1/wrangler-commands/)。

@@ -19,7 +19,7 @@ async function handleApiRequest(request, env) {
 	if (accessMode) {
 		if (!accessConfigured(env)) return jsonResponse({ error: 'Access authentication is not configured' }, 503);
 		accessIdentity = await verifyAccess(request, env);
-		if (!accessIdentity) return jsonResponse({ error: 'Google ログインで認証してください。', auth: 'cloudflare-access' }, 401);
+		if (!accessIdentity) return jsonResponse({ error: '設定された認証方法でログインしてください。', auth: 'cloudflare-access' }, 401);
 		if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
 			const origin = request.headers.get('Origin');
 			if (origin && origin !== new URL(request.url).origin) return jsonResponse({ error: 'Invalid origin' }, 403);

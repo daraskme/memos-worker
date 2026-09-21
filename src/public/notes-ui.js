@@ -26,7 +26,7 @@ async function api(path, options = {}) {
   const res = await fetch(path, options);
   if (res.status === 401) {
     if (!path.endsWith('/login') && !$('#editor-dialog').open) showLogin();
-    throw new Error(localPreview ? 'ユーザー名・パスワードを確認してログインしてください。' : 'Google ログインの有効期限が切れました。別タブでログインし直してから再度保存してください。');
+    throw new Error(localPreview ? 'ユーザー名・パスワードを確認してログインしてください。' : 'ログインの有効期限が切れました。別タブでログインし直してから再度保存してください。');
   }
   if (res.status === 204) return null;
   let data;
